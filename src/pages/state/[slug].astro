@@ -31,7 +31,7 @@ let dissatisfied = 0;
 let total = 0;
 
 try {
-  const totals = await getStateTotals(state.code);
+  const totals = await getStateTotals(Astro.locals.runtime.env, state.code);
   satisfied = totals.satisfied;
   dissatisfied = totals.dissatisfied;
   total = totals.total;
@@ -57,9 +57,9 @@ let trendData: Array<{ day: string; satPct: number }> = [];
 let showTrend = false;
 
 try {
-  const snapCount = await getSnapshotCount(state.code);
+  const snapCount = await getSnapshotCount(Astro.locals.runtime.env, state.code);
   if (snapCount >= 7) {
-    trendData = await getStateSeries(state.code, 30);
+    trendData = await getStateSeries(Astro.locals.runtime.env, state.code, 30);
     showTrend = trendData.length >= 2;
   }
 } catch {

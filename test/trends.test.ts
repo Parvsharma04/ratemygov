@@ -16,88 +16,57 @@ const FIXTURE_SNAPSHOTS = [
   { day: '2026-09-12', state_code: 1, satisfied: 260, dissatisfied: 170 },  // +20 sat, +10 dis = 30, 67%
 ];
 
-// Mock db.ts before importing trends
+// Mock the Cloudflare D1 binding before importing trends.
 vi.mock('../src/lib/db', () => {
-  const handler = {
-    apply(_target: any, _thisArg: any, argArray: any[]) {
-      const tag = argArray[0] as TemplateStringsArray;
-      const raw = tag.raw.join('').trim();
-
-      // getStateSeries query
-      if (raw.includes('from daily_snapshots') && raw.includes('order by day')) {
-        const stateCode = argArray[1];
-        const rows = FIXTURE_SNAPSHOTS.filter(
-          (r) => r.state_code === stateCode
-        ).sort((a, b) => a.day.localeCompare(b.day));
-        return Promise.resolve(rows);
-      }
-
-      // getSnapshotCount query
-      if (raw.includes('count(*)') && raw.includes('daily_snapshots')) {
-        const stateCode = argArray[1];
-        const cnt = FIXTURE_SNAPSHOTS.filter(
-          (r) => r.state_code === stateCode
-        ).length;
-        return Promise.resolve([{ cnt }]);
-      }
-
-      // getSnapshotDayCount query
-      if (raw.includes('count(distinct day)') && raw.includes('daily_snapshots')) {
-        const distinctDays = new Set(FIXTURE_SNAPSHOTS.map((r) => r.day)).size;
-        return Promise.resolve([{ cnt: distinctDays }]);
-      }
-
-      // getWindowSentiment – distinct on base snapshot
-      if (raw.includes('distinct on') && raw.includes('daily_snapshots')) {
-        const days = argArray[1];
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
-        const cutoffStr = cutoff.toISOString().slice(0, 10);
-        const grouped = new Map<
-          number,
-          { state_code: number; satisfied: number; dissatisfied: number }
-        >();
-        for (const r of FIXTURE_SNAPSHOTS) {
-          if (r.day <= cutoffStr) {
-            const existing = grouped.get(r.state_code);
-            if (!existing || r.day > (existing as any).day) {
-              grouped.set(r.state_code, { ...r });
-            }
+  const db = {
+    prepare(query: string) {
+      let values: unknown[] = [];
+      const statement = {
+        bind(...bound: unknown[]) {
+          values = bound;
+          return statement;
+        },
+        async all() {
+          if (query.includes('ORDER BY day DESC')) {
+            const stateCode = values[0];
+            return {
+              results: FIXTURE_SNAPSHOTS.filter(
+                (row) => row.state_code === stateCode
+              ).sort((a, b) => b.day.localeCompare(a.day)),
+            };
           }
-        }
-        return Promise.resolve(Array.from(grouped.values()));
-      }
-
-      // getWindowSentiment – live totals from vote_counts
-      if (
-        raw.includes('sum(satisfied)') &&
-        raw.includes('vote_counts') &&
-        raw.includes('group by state_code')
-      ) {
-        // Return the latest snapshot values as "live" totals
-        const latest = FIXTURE_SNAPSHOTS[FIXTURE_SNAPSHOTS.length - 1];
-        return Promise.resolve([
-          {
-            state_code: latest.state_code,
-            satisfied: BigInt(latest.satisfied),
-            dissatisfied: BigInt(latest.dissatisfied),
-          },
-        ]);
-      }
-
-      return Promise.resolve([]);
-    },
-    get(_target: any, prop: string | symbol) {
-      if (prop === 'then') return undefined;
-      if (typeof prop === 'string') {
-        return (..._args: any[]) => Promise.resolve([]);
-      }
-      return undefined;
+          if (query.includes('MAX(previous.day)')) return { results: [] };
+          if (query.includes('FROM vote_counts')) {
+            const latest = FIXTURE_SNAPSHOTS[FIXTURE_SNAPSHOTS.length - 1];
+            return {
+              results: [{
+                state_code: latest.state_code,
+                satisfied: latest.satisfied,
+                dissatisfied: latest.dissatisfied,
+              }],
+            };
+          }
+          return { results: [] };
+        },
+        async first() {
+          if (query.includes('COUNT(DISTINCT day)')) {
+            return { cnt: new Set(FIXTURE_SNAPSHOTS.map((row) => row.day)).size };
+          }
+          if (query.includes('COUNT(*)')) {
+            return {
+              cnt: FIXTURE_SNAPSHOTS.filter(
+                (row) => row.state_code === values[0]
+              ).length,
+            };
+          }
+          return null;
+        },
+      };
+      return statement;
     },
   };
 
-  const proxy = new Proxy((() => {}) as any, handler);
-  return { sql: proxy, getDb: () => proxy, closeDb: async () => {} };
+  return { getDb: () => db };
 });
 
 import {
@@ -109,6 +78,8 @@ import {
   buildTrendRows,
 } from '../src/lib/trends';
 
+const env = { DB: {} as any };
+
 describe('Trends helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,7 +87,7 @@ describe('Trends helpers', () => {
 
   describe('getStateSeries', () => {
     it('computes daily deltas and skips days with fewer than 10 new votes', async () => {
-      const series = await getStateSeries(1, 30);
+      const series = await getStateSeries(env, 1, 30);
 
       // Day 2026-09-04 has only 5 total new votes and should be skipped
       expect(series.find((p) => p.day === '2026-09-04')).toBeUndefined();
@@ -138,17 +109,17 @@ describe('Trends helpers', () => {
     });
 
     it('returns at most `days` points', async () => {
-      const series = await getStateSeries(1, 5);
+      const series = await getStateSeries(env, 1, 5);
       expect(series.length).toBeLessThanOrEqual(5);
     });
 
     it('returns empty for a state with no snapshots', async () => {
-      const series = await getStateSeries(999, 30);
+      const series = await getStateSeries(env, 999, 30);
       expect(series).toEqual([]);
     });
 
     it('returns exactly 10 valid data points from 12-day fixture', async () => {
-      const series = await getStateSeries(1, 30);
+      const series = await getStateSeries(env, 1, 30);
       // 11 deltas, 1 skipped (day 4), so 10 valid points
       expect(series.length).toBe(10);
     });
@@ -156,19 +127,19 @@ describe('Trends helpers', () => {
 
   describe('getSnapshotCount', () => {
     it('returns the correct count for a state with snapshots', async () => {
-      const count = await getSnapshotCount(1);
+      const count = await getSnapshotCount(env, 1);
       expect(count).toBe(12);
     });
 
     it('returns 0 for a state with no snapshots', async () => {
-      const count = await getSnapshotCount(999);
+      const count = await getSnapshotCount(env, 999);
       expect(count).toBe(0);
     });
   });
 
   describe('getSnapshotDayCount', () => {
     it('returns the number of distinct snapshot days', async () => {
-      const days = await getSnapshotDayCount();
+      const days = await getSnapshotDayCount(env);
       expect(days).toBe(12);
     });
   });
@@ -246,7 +217,7 @@ describe('Trends helpers', () => {
   describe('getWindowSentiment', () => {
     it('returns null for states without sufficient history', async () => {
       // Use a window larger than our fixture range
-      const result = await getWindowSentiment(365);
+      const result = await getWindowSentiment(env, 365);
       // State 1 won't have a base snapshot 365 days old
       const s1 = result.get(1);
       expect(s1).toBeNull();

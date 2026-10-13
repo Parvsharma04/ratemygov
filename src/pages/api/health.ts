@@ -4,7 +4,7 @@ import { getRecentVoteCounts } from '../../lib/votes';
 
 export const prerender = false;
 
-export const GET: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request, locals }) => {
   const cronSecret =
     import.meta.env.CRON_SECRET ||
     (typeof process !== 'undefined' ? process.env.CRON_SECRET : undefined);
@@ -26,7 +26,7 @@ export const GET: APIRoute = async ({ request }) => {
   }
 
   try {
-    const recentCounts = await getRecentVoteCounts(5);
+    const recentCounts = await getRecentVoteCounts(locals.runtime.env, 5);
     const countMap = new Map<number, number>(
       recentCounts.map((r) => [r.stateCode, r.count])
     );

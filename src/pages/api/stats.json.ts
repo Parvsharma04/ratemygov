@@ -5,9 +5,9 @@ import { CACHE_HEADERS } from '../../lib/cache';
 
 export const prerender = false;
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ locals }) => {
   try {
-    const allTotals = await getAllTotals();
+    const allTotals = await getAllTotals(locals.runtime.env);
     const totalsByCode = new Map(allTotals.map((t) => [t.stateCode, t]));
 
     const states = STATES.map((state) => {

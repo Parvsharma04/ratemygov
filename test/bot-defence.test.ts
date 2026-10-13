@@ -90,7 +90,7 @@ describe('Bot defence and health monitoring', () => {
     });
 
     const res = await GET({ request: req } as any);
-    // In unit test without real postgres connection, health catches DB and returns 500 or 200
+    // In unit tests without a D1 binding, health handles the query failure.
     // But importantly it passed the 401 authorization barrier!
     expect([200, 500]).toContain(res.status);
     if (res.status === 200) {

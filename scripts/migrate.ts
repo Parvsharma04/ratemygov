@@ -1,44 +1,25 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-import postgres from 'postgres';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const schemaPath = fileURLToPath(new URL('../db/schema-d1.sql', import.meta.url));
+const target = process.argv.includes('--remote') ? '--remote' : '--local';
 
-async function runMigration(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    console.error('Error: DATABASE_URL environment variable is required to run migrations.');
-    console.error('Example: postgresql://user:password@host:port/database?sslmode=require');
-    process.exit(1);
-  }
-
-  const schemaPath = resolve(__dirname, '../db/schema.sql');
-  const schemaSql = readFileSync(schemaPath, 'utf8');
-
-  console.log('Connecting to database...');
-  const sql = postgres(databaseUrl, {
-    max: 1,
-    connect_timeout: 10,
-    onnotice: () => {}, // suppress notice spam on migrations
-  });
-
-  try {
-    console.log(`Applying schema from ${schemaPath}...`);
-    await sql.unsafe(schemaSql);
-    console.log('Migration completed successfully.');
-  } catch (error) {
-    console.error('Migration failed:', error);
-    process.exit(1);
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
+try {
+  execFileSync(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'd1',
+      'execute',
+      'rate-my-gov',
+      target,
+      '--file',
+      schemaPath,
+    ],
+    { stdio: 'inherit' }
+  );
+} catch (error) {
+  console.error('D1 migration failed.', error);
+  process.exitCode = 1;
 }
-
-// Execute migration if script is run directly
-runMigration().catch((error) => {
-  console.error('Fatal migration error:', error);
-  process.exit(1);
-});

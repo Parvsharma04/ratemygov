@@ -12,11 +12,10 @@
  *  - Cache-Control on every public GET route (pages, sitemap, /go redirect)
  *    and no-store on personalized/error/vote-processing responses.
  *
- * Pages are served in DB-fallback mode (`wrangler dev` cannot reach local
- * Postgres), so the biggest fixed payload — the inline Survey of India map on
- * the home page — is always measured (map paths are data-independent). The
- * data-dependent widgets on /trends and state pages are small and well inside
- * their budgets, so the fallback render still provides a strict guard.
+ * Pages are served against Wrangler's local D1 database. If the local schema
+ * has not been migrated, the app's DB error fallback is measured instead; the
+ * biggest fixed payload — the inline Survey of India map on the home page —
+ * is data-independent, and the data-dependent widgets are small.
  *
  * Exits non-zero when any budget is exceeded or a structural invariant is
  * violated, so `pnpm audit:size` fails the build in CI.

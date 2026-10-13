@@ -209,6 +209,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -228,6 +229,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -251,6 +253,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -296,6 +299,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -327,6 +331,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -366,6 +371,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);
@@ -394,6 +400,7 @@ describe('Vote and Geo API Endpoints (DB Mocked)', () => {
     const context = {
       request: req,
       url: new URL('https://ratemygov.in/api/vote'),
+      locals: { runtime: { env: { DB: {} } } },
     } as any;
 
     const res = await voteHandler(context);

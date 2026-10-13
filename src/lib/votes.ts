@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { getDb, type DatabaseEnv } from './db';
 
 export type VoteResult = 'recorded' | 'duplicate';
 
@@ -17,79 +17,84 @@ export interface StateTotals {
   total: number;
 }
 
-export interface StateRecentVotes {
-  stateCode: number;
-  slug: string;
-  name: string;
-  votesLast5Min: number;
-}
-
 function normalizeHash(hash: Uint8Array | Buffer | string): Buffer {
   if (Buffer.isBuffer(hash)) {
     return hash;
   }
   if (typeof hash === 'string') {
-    // If hexadecimal string, parse as hex; otherwise parse as utf-8
     const isHex = /^[0-9a-fA-F]+$/.test(hash) && hash.length % 2 === 0;
     return Buffer.from(hash, isHex ? 'hex' : 'utf8');
   }
   return Buffer.from(hash);
 }
 
-/**
- * Casts a vote atomically using one SQL statement.
- *
- * Conflict clause has no target; a clash on either the device key (state_code, voter_hash)
- * or IP key (state_code, ip_hash) causes the insert to do nothing and no counters are updated.
- *
- * Returns 'recorded' if recorded, 'duplicate' otherwise.
- */
-export async function castVote({
-  stateCode,
-  choice,
-  voterHash,
-  ipHash,
-  geoState = null,
-}: CastVoteParams): Promise<VoteResult> {
-  const shard = Math.floor(Math.random() * 16);
+export async function castVote(
+  env: DatabaseEnv,
+  {
+    stateCode,
+    choice,
+    voterHash,
+    ipHash,
+    geoState = null,
+  }: CastVoteParams
+): Promise<VoteResult> {
+  const db = getDb(env);
   const geoMatch =
-    geoState === null || geoState === undefined ? null : geoState === stateCode;
+    geoState === null || geoState === undefined
+      ? null
+      : geoState === stateCode
+        ? 1
+        : 0;
 
   const voterHashBuf = normalizeHash(voterHash);
   const ipHashBuf = normalizeHash(ipHash);
 
-  const rows = await sql`
-    with ins as (
-      insert into votes(state_code, voter_hash, ip_hash, choice, geo_state, geo_match)
-      values (${stateCode}, ${voterHashBuf}, ${ipHashBuf}, ${choice}, ${geoState ?? null}, ${geoMatch})
-      on conflict do nothing
-      returning choice
-    )
-    update vote_counts c
-    set satisfied = c.satisfied + (case when ins.choice then 1 else 0 end),
-        dissatisfied = c.dissatisfied + (case when ins.choice then 0 else 1 end)
-    from ins
-    where c.state_code = ${stateCode} and c.shard = ${shard}
-    returning 1
-  `;
+  try {
+    const result = await db
+      .prepare(
+        `
+        INSERT OR IGNORE INTO votes (state_code, voter_hash, ip_hash, choice, geo_state, geo_match)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `
+      )
+      .bind(
+        stateCode,
+        voterHashBuf,
+        ipHashBuf,
+        choice ? 1 : 0,
+        geoState,
+        geoMatch
+      )
+      .run();
 
-  return rows.length > 0 ? 'recorded' : 'duplicate';
+    return result.meta.changes === 0 ? 'duplicate' : 'recorded';
+  } catch (error) {
+    console.error('Vote error:', error);
+    throw error;
+  }
 }
 
-/**
- * Returns totals for a single state by summing across all 16 shards.
- */
-export async function getStateTotals(stateCode: number): Promise<StateTotals> {
-  const rows = await sql`
-    select
-      coalesce(sum(satisfied), 0)::bigint as satisfied,
-      coalesce(sum(dissatisfied), 0)::bigint as dissatisfied
-    from vote_counts
-    where state_code = ${stateCode}
-  `;
+export async function getStateTotals(
+  env: DatabaseEnv,
+  stateCode: number
+): Promise<StateTotals> {
+  const db = getDb(env);
 
-  const satisfied = Number(rows[0]?.satisfied ?? 0);
-  const dissatisfied = Number(rows[0]?.dissatisfied ?? 0);
+  const result = await db
+    .prepare(
+      `
+      SELECT
+        COALESCE(SUM(satisfied), 0) AS satisfied,
+        COALESCE(SUM(dissatisfied), 0) AS dissatisfied
+      FROM vote_counts
+      WHERE state_code = ?
+    `
+    )
+    .bind(stateCode)
+    .first<{ satisfied: number; dissatisfied: number }>();
+
+  const satisfied = Number(result?.satisfied ?? 0);
+  const dissatisfied = Number(result?.dissatisfied ?? 0);
 
   return {
     stateCode,
@@ -99,25 +104,28 @@ export async function getStateTotals(stateCode: number): Promise<StateTotals> {
   };
 }
 
-/**
- * Returns totals across all states via a single grouped query.
- */
-export async function getAllTotals(): Promise<StateTotals[]> {
-  const rows = await sql`
-    select
-      state_code,
-      coalesce(sum(satisfied), 0)::bigint as satisfied,
-      coalesce(sum(dissatisfied), 0)::bigint as dissatisfied
-    from vote_counts
-    group by state_code
-    order by state_code asc
-  `;
+export async function getAllTotals(env: DatabaseEnv): Promise<StateTotals[]> {
+  const db = getDb(env);
 
-  return rows.map((r) => {
-    const satisfied = Number(r.satisfied);
-    const dissatisfied = Number(r.dissatisfied);
+  const rows = await db
+    .prepare(
+      `
+      SELECT
+        state_code,
+        COALESCE(SUM(satisfied), 0) AS satisfied,
+        COALESCE(SUM(dissatisfied), 0) AS dissatisfied
+      FROM vote_counts
+      GROUP BY state_code
+      ORDER BY state_code ASC
+    `
+    )
+    .all<{ state_code: number; satisfied: number; dissatisfied: number }>();
+
+  return rows.results.map((row) => {
+    const satisfied = Number(row.satisfied);
+    const dissatisfied = Number(row.dissatisfied);
     return {
-      stateCode: Number(r.state_code),
+      stateCode: Number(row.state_code),
       satisfied,
       dissatisfied,
       total: satisfied + dissatisfied,
@@ -125,24 +133,29 @@ export async function getAllTotals(): Promise<StateTotals[]> {
   });
 }
 
-/**
- * Returns the count of votes recorded in the last 5 minutes per state.
- */
 export async function getRecentVoteCounts(
+  env: DatabaseEnv,
   windowMinutes: number = 5
 ): Promise<Array<{ stateCode: number; count: number }>> {
-  const rows = await sql`
-    select
-      state_code,
-      count(*)::bigint as cnt
-    from votes
-    where created_at >= now() - (${windowMinutes} || ' minutes')::interval
-    group by state_code
-    order by state_code asc
-  `;
+  const db = getDb(env);
 
-  return rows.map((r) => ({
-    stateCode: Number(r.state_code),
-    count: Number(r.cnt),
+  const rows = await db
+    .prepare(
+      `
+      SELECT
+        state_code,
+        COUNT(*) AS cnt
+      FROM votes
+      WHERE created_at >= datetime('now', '-' || ? || ' minutes')
+      GROUP BY state_code
+      ORDER BY state_code ASC
+    `
+    )
+    .bind(windowMinutes)
+    .all<{ state_code: number; cnt: number }>();
+
+  return rows.results.map((row) => ({
+    stateCode: Number(row.state_code),
+    count: Number(row.cnt),
   }));
 }

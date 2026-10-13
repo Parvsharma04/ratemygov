@@ -10,6 +10,13 @@
     "binding": "ASSETS",
     "directory": "./dist"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rate-my-gov",
+      "database_id": "f50d2042-df1c-4ed2-a2e6-0087b897d7f0"
+    }
+  ],
   "vars": {
     "GEO_MODE": "flag",
     "MIN_RESPONSES": "50"

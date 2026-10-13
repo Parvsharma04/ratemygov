@@ -47,9 +47,9 @@ let snapshotDays = 0;
 
 try {
   const [totals, windowMap, daysCount] = await Promise.all([
-    getAllTotals(),
-    getWindowSentiment(days),
-    getSnapshotDayCount(),
+    getAllTotals(Astro.locals.runtime.env),
+    getWindowSentiment(Astro.locals.runtime.env, days),
+    getSnapshotDayCount(Astro.locals.runtime.env),
   ]);
   allTotals = totals;
   sentiment = windowMap;

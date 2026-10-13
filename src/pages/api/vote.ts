@@ -22,7 +22,8 @@ const voteSchema = z.object({
   website: z.string().optional().nullable(),
 });
 
-export const POST: APIRoute = async ({ request, url }) => {
+export const POST: APIRoute = async (context) => {
+  const { request, url } = context;
   // 1. Origin verification
   const origin = request.headers.get('origin');
   const expectedOrigin = url.origin;
@@ -93,7 +94,7 @@ export const POST: APIRoute = async ({ request, url }) => {
     if (isJson) {
       let totals;
       try {
-        totals = await getStateTotals(selectedState.code);
+        totals = await getStateTotals(context.locals.runtime.env, selectedState.code);
       } catch {
         totals = {
           stateCode: selectedState.code,
@@ -169,7 +170,7 @@ export const POST: APIRoute = async ({ request, url }) => {
 
   // 8. Atomic vote submission
   try {
-    const result = await castVote({
+    const result = await castVote(context.locals.runtime.env, {
       stateCode: selectedState.code,
       choice: parsed.data.choice === 'satisfied',
       voterHash,
@@ -178,7 +179,7 @@ export const POST: APIRoute = async ({ request, url }) => {
     });
 
     if (isJson) {
-      const totals = await getStateTotals(selectedState.code);
+      const totals = await getStateTotals(context.locals.runtime.env, selectedState.code);
       return new Response(
         JSON.stringify({
           status: result,

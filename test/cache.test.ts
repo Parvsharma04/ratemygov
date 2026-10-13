@@ -98,7 +98,9 @@ describe('Cache configuration & pct() percentage calculator', () => {
         }))
       );
 
-      const res = await statsJsonHandler({} as any);
+      const res = await statsJsonHandler({
+        locals: { runtime: { env: { DB: {} } } },
+      } as any);
       expect(res.status).toBe(200);
       expect(res.headers.get('Cache-Control')).toBe(
         'public, s-maxage=30, stale-while-revalidate=300'

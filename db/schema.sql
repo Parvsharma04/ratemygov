@@ -1,57 +1,60 @@
--- Rate My Gov PostgreSQL Schema
--- Idempotent initialization script for Cloudflare Workers / Hyperdrive deployment
+-- Rate My Gov schema for Cloudflare D1 (SQLite).
 
--- 1. Individual votes table
--- duplicate prevention: one vote per state per voter_hash (device) and one vote per state per ip_hash
 CREATE TABLE IF NOT EXISTS votes (
-  state_code smallint NOT NULL,
-  voter_hash bytea NOT NULL,
-  ip_hash bytea NOT NULL,
-  choice boolean NOT NULL,
-  geo_state smallint NULL,
-  geo_match boolean NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
+  state_code INTEGER NOT NULL,
+  voter_hash BLOB NOT NULL,
+  ip_hash BLOB NOT NULL,
+  choice INTEGER NOT NULL CHECK (choice IN (0, 1)),
+  geo_state INTEGER,
+  geo_match INTEGER CHECK (geo_match IN (0, 1) OR geo_match IS NULL),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (state_code, voter_hash),
-  CONSTRAINT uq_votes_state_ip UNIQUE (state_code, ip_hash)
+  UNIQUE (state_code, ip_hash)
 );
 
--- Index for snapshotting and time-bounded queries
 CREATE INDEX IF NOT EXISTS idx_votes_created_at ON votes (created_at);
 
-COMMENT ON TABLE votes IS 'Individual voluntary governance votes with privacy-preserving cryptographic hashes';
-COMMENT ON COLUMN votes.choice IS 'true = satisfied, false = dissatisfied';
-COMMENT ON COLUMN votes.geo_state IS 'State code inferred from visitor IP, null when unknown';
-COMMENT ON COLUMN votes.geo_match IS 'Whether geo_state equals state_code, null when unknown';
-
--- 2. Sharded vote counter table
--- 16 shards per state to minimize write lock contention on high-concurrency atomic increments
 CREATE TABLE IF NOT EXISTS vote_counts (
-  state_code smallint NOT NULL,
-  shard smallint NOT NULL,
-  satisfied bigint NOT NULL DEFAULT 0,
-  dissatisfied bigint NOT NULL DEFAULT 0,
+  state_code INTEGER NOT NULL,
+  shard INTEGER NOT NULL,
+  satisfied INTEGER NOT NULL DEFAULT 0,
+  dissatisfied INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (state_code, shard)
 );
 
--- Seed 16 shards (0..15) for each of the 36 Indian states and UTs (1..36)
+WITH RECURSIVE states(state_code) AS (
+  SELECT 1
+  UNION ALL
+  SELECT state_code + 1 FROM states WHERE state_code < 36
+), shards(shard) AS (
+  SELECT 0
+  UNION ALL
+  SELECT shard + 1 FROM shards WHERE shard < 15
+)
 INSERT INTO vote_counts (state_code, shard, satisfied, dissatisfied)
-SELECT
-  s.state_code::smallint,
-  sh.shard::smallint,
-  0,
-  0
-FROM generate_series(1, 36) AS s(state_code)
-CROSS JOIN generate_series(0, 15) AS sh(shard)
+SELECT state_code, shard, 0, 0
+FROM states CROSS JOIN shards
+WHERE 1
 ON CONFLICT (state_code, shard) DO NOTHING;
 
--- 3. Daily historical aggregates table
--- Stored snapshots for historical trend rendering without querying raw votes
 CREATE TABLE IF NOT EXISTS daily_snapshots (
-  day date NOT NULL,
-  state_code smallint NOT NULL,
-  satisfied bigint NOT NULL,
-  dissatisfied bigint NOT NULL,
+  day TEXT NOT NULL,
+  state_code INTEGER NOT NULL,
+  satisfied INTEGER NOT NULL,
+  dissatisfied INTEGER NOT NULL,
   PRIMARY KEY (day, state_code)
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_snapshots_state_day ON daily_snapshots (state_code, day);
+CREATE INDEX IF NOT EXISTS idx_daily_snapshots_state_day
+  ON daily_snapshots (state_code, day);
+
+CREATE TRIGGER IF NOT EXISTS votes_after_insert
+AFTER INSERT ON votes
+BEGIN
+  UPDATE vote_counts
+  SET
+    satisfied = satisfied + CASE WHEN NEW.choice = 1 THEN 1 ELSE 0 END,
+    dissatisfied = dissatisfied + CASE WHEN NEW.choice = 0 THEN 1 ELSE 0 END
+  WHERE state_code = NEW.state_code
+    AND shard = instr('0123456789ABCDEF', substr(hex(NEW.voter_hash), 1, 1)) - 1;
+END;

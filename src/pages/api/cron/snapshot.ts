@@ -1,9 +1,9 @@
 import type { APIRoute } from 'astro';
-import { sql } from '../../../lib/db';
+import { getDb } from '../../../lib/db';
 
 export const prerender = false;
 
-export const GET: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request, locals }) => {
   const cronSecret =
     import.meta.env.CRON_SECRET ||
     (typeof process !== 'undefined' ? process.env.CRON_SECRET : undefined);
@@ -22,16 +22,17 @@ export const GET: APIRoute = async ({ request }) => {
   }
 
   try {
-    await sql`
-      insert into daily_snapshots (day, state_code, satisfied, dissatisfied)
-      select current_date, state_code, sum(satisfied), sum(dissatisfied)
-      from vote_counts
-      group by state_code
-      on conflict (day, state_code)
-      do update set
-        satisfied = excluded.satisfied,
-        dissatisfied = excluded.dissatisfied
-    `;
+    await getDb(locals.runtime.env)
+      .prepare(
+        `INSERT INTO daily_snapshots (day, state_code, satisfied, dissatisfied)
+         SELECT date('now'), state_code, SUM(satisfied), SUM(dissatisfied)
+         FROM vote_counts
+         GROUP BY state_code
+         ON CONFLICT (day, state_code) DO UPDATE SET
+           satisfied = excluded.satisfied,
+           dissatisfied = excluded.dissatisfied`
+      )
+      .run();
 
     return new Response(
       JSON.stringify({
@@ -46,7 +47,8 @@ export const GET: APIRoute = async ({ request }) => {
         },
       }
     );
-  } catch {
+  } catch (error) {
+    console.error('Snapshot failed:', error);
     return new Response(
       JSON.stringify({ status: 'error', message: 'Snapshot failed' }),
       {

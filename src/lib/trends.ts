@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { getDb, type DatabaseEnv } from './db';
 import { pct } from './cache';
 
 export const MIN_WINDOW_RESPONSES = 10;
@@ -104,16 +104,22 @@ export function buildTrendRows(
  * represent the new votes recorded on that calendar day.
  */
 export async function getStateSeries(
+  env: DatabaseEnv,
   stateCode: number,
   days: number = 30
 ): Promise<DailyPoint[]> {
-  const rows = await sql`
-    select day, satisfied, dissatisfied
-    from daily_snapshots
-    where state_code = ${stateCode}
-    order by day asc
-  `;
+  const { results: descendingRows } = await getDb(env)
+    .prepare(
+      `SELECT day, satisfied, dissatisfied
+       FROM daily_snapshots
+       WHERE state_code = ?
+       ORDER BY day DESC
+       LIMIT ?`
+    )
+    .bind(stateCode, Math.max(1, days + 1))
+    .all<{ day: string; satisfied: number; dissatisfied: number }>();
 
+  const rows = descendingRows.reverse();
   if (rows.length < 2) return [];
 
   const points: DailyPoint[] = [];
@@ -144,38 +150,49 @@ export async function getStateSeries(
  * (newSat + newDis) is below MIN_WINDOW_RESPONSES.
  */
 export async function getWindowSentiment(
+  env: DatabaseEnv,
   days: number
 ): Promise<Map<number, WindowSentiment | null>> {
-  const baseRows = await sql`
-    select distinct on (state_code)
-      state_code, satisfied, dissatisfied
-    from daily_snapshots
-    where day <= current_date - ${days}::int
-    order by state_code, day desc
-  `;
+  const db = getDb(env);
+  const baseRows = await db
+    .prepare(
+      `SELECT snapshot.state_code, snapshot.satisfied, snapshot.dissatisfied
+       FROM daily_snapshots AS snapshot
+       WHERE snapshot.day = (
+         SELECT MAX(previous.day)
+         FROM daily_snapshots AS previous
+         WHERE previous.state_code = snapshot.state_code
+           AND previous.day <= date('now', '-' || ? || ' days')
+       )
+       ORDER BY snapshot.state_code`
+    )
+    .bind(days)
+    .all<{ state_code: number; satisfied: number; dissatisfied: number }>();
 
-  const liveRows = await sql`
-    select
-      state_code,
-      coalesce(sum(satisfied), 0)::bigint as satisfied,
-      coalesce(sum(dissatisfied), 0)::bigint as dissatisfied
-    from vote_counts
-    group by state_code
-    order by state_code
-  `;
+  const liveRows = await db
+    .prepare(
+      `SELECT
+         state_code,
+         COALESCE(SUM(satisfied), 0) AS satisfied,
+         COALESCE(SUM(dissatisfied), 0) AS dissatisfied
+       FROM vote_counts
+       GROUP BY state_code
+       ORDER BY state_code`
+    )
+    .all<{ state_code: number; satisfied: number; dissatisfied: number }>();
 
   const baseMap = new Map<number, { sat: number; dis: number }>();
-  for (const r of baseRows) {
-    baseMap.set(Number(r.state_code), {
-      sat: Number(r.satisfied),
-      dis: Number(r.dissatisfied),
+  for (const row of baseRows.results) {
+    baseMap.set(Number(row.state_code), {
+      sat: Number(row.satisfied),
+      dis: Number(row.dissatisfied),
     });
   }
 
   const result = new Map<number, WindowSentiment | null>();
 
-  for (const r of liveRows) {
-    const sc = Number(r.state_code);
+  for (const row of liveRows.results) {
+    const sc = Number(row.state_code);
     const base = baseMap.get(sc);
 
     if (!base) {
@@ -183,8 +200,8 @@ export async function getWindowSentiment(
       continue;
     }
 
-    const newSat = Number(r.satisfied) - base.sat;
-    const newDis = Number(r.dissatisfied) - base.dis;
+    const newSat = Number(row.satisfied) - base.sat;
+    const newDis = Number(row.dissatisfied) - base.dis;
     const total = newSat + newDis;
 
     result.set(sc, {
@@ -201,23 +218,28 @@ export async function getWindowSentiment(
 /**
  * Returns the number of daily snapshots available for a state.
  */
-export async function getSnapshotCount(stateCode: number): Promise<number> {
-  const rows = await sql`
-    select count(*)::int as cnt
-    from daily_snapshots
-    where state_code = ${stateCode}
-  `;
-  return Number(rows[0]?.cnt ?? 0);
+export async function getSnapshotCount(
+  env: DatabaseEnv,
+  stateCode: number
+): Promise<number> {
+  const row = await getDb(env)
+    .prepare(
+      `SELECT COUNT(*) AS cnt
+       FROM daily_snapshots
+       WHERE state_code = ?`
+    )
+    .bind(stateCode)
+    .first<{ cnt: number }>();
+  return Number(row?.cnt ?? 0);
 }
 
 /**
  * Returns the number of distinct snapshot days across all states (global
  * history available for the /trends window).
  */
-export async function getSnapshotDayCount(): Promise<number> {
-  const rows = await sql`
-    select count(distinct day)::int as cnt
-    from daily_snapshots
-  `;
-  return Number(rows[0]?.cnt ?? 0);
+export async function getSnapshotDayCount(env: DatabaseEnv): Promise<number> {
+  const row = await getDb(env)
+    .prepare(`SELECT COUNT(DISTINCT day) AS cnt FROM daily_snapshots`)
+    .first<{ cnt: number }>();
+  return Number(row?.cnt ?? 0);
 }

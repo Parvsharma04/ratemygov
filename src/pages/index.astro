@@ -18,7 +18,7 @@ let allTotals: Array<{
 }> = [];
 
 try {
-  allTotals = await getAllTotals();
+  allTotals = await getAllTotals(Astro.locals.runtime.env);
 } catch {
   allTotals = [];
 }

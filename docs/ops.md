@@ -86,9 +86,11 @@ A per-state sanity monitoring endpoint is available at `GET /api/health` to dete
 ## 4. Duplicate Prevention Policy & Network Side Effects
 
 ### Current Strict Policy (Product Decision)
-By product requirement, duplicate prevention enforces **both** of the following constraints atomically in PostgreSQL:
+By product requirement, duplicate prevention enforces **both** of the following constraints atomically in the configured Cloudflare D1 database:
 1. `(state_code, voter_hash)` — Enforces at most one vote per state per device (HMAC-SHA256 hashed device cookie).
 2. `(state_code, ip_hash)` — Enforces at most one vote per state per IP network identity (HMAC-SHA256 hashed client IP, with IPv6 normalized to `/64`).
+
+The vote is submitted with one `INSERT OR IGNORE` statement. A D1 `AFTER INSERT` trigger updates the selected counter shard in the same transaction, so a conflict against either unique key leaves both votes and counters unchanged.
 
 ### Side Effects on Indian Internet Infrastructure
 Because the unique constraint on `(state_code, ip_hash)` is strictly enforced at the database level:
@@ -102,11 +104,8 @@ Because the unique constraint on `(state_code, ip_hash)` is strictly enforced at
 ### Procedure to Loosen the Constraint
 If field feedback or operational metrics require loosening the duplicate policy so multiple people on the same shared Wi-Fi or CGNAT gateway can vote:
 
-1. **Execute Database Migration**:
-   Drop the unique constraint on `(state_code, ip_hash)`:
-   ```sql
-   ALTER TABLE votes DROP CONSTRAINT IF EXISTS uq_votes_state_ip;
-   ```
+1. **Prepare a D1 table-rebuild migration**:
+   SQLite does not support dropping a table-level unique constraint in place. A reviewed migration must create a replacement `votes` table without `UNIQUE (state_code, ip_hash)`, copy the existing records, replace the original table, and recreate its indexes and insert trigger. Do not run a PostgreSQL `ALTER TABLE ... DROP CONSTRAINT` statement against D1.
 2. **Retain the Device Constraint**:
    The primary key `(state_code, voter_hash)` remains active, ensuring each unique browser/device cannot vote more than once per state.
 3. **Rely on Rate Limits**:
