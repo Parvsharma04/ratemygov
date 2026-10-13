@@ -1,3 +1,9 @@
+packages:
+  - "."
+  # or list your workspace package directories, e.g.:
+  # - "apps/*"
+  # - "packages/*"
+
 allowBuilds:
   esbuild: true
   sharp: true
