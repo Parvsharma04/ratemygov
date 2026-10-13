@@ -1,0 +1,8 @@
+# Cache-Control for prerendered (static) pages served from Cloudflare assets.
+# Splat (`*`) covers both the bare path and the trailing-slash form that
+# Cloudflare Assets redirects to when serving index.html.
+# SSR pages set their own Cache-Control responses at runtime.
+/methodology*
+  Cache-Control: public, s-maxage=30, stale-while-revalidate=300
+/privacy*
+  Cache-Control: public, s-maxage=30, stale-while-revalidate=300

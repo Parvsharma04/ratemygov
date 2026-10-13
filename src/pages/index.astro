@@ -1,0 +1,142 @@
+---
+import Base from '../layouts/Base.astro';
+import IndiaMap from '../components/IndiaMap.astro';
+import { STATES } from '../lib/states';
+import { getAllTotals } from '../lib/votes';
+import { CACHE_HEADERS, pct } from '../lib/cache';
+import { MIN_RESPONSES } from '../lib/colour';
+
+export const prerender = false;
+
+Astro.response.headers.set('Cache-Control', CACHE_HEADERS['Cache-Control']);
+
+let allTotals: Array<{
+  stateCode: number;
+  satisfied: number;
+  dissatisfied: number;
+  total: number;
+}> = [];
+
+try {
+  allTotals = await getAllTotals();
+} catch {
+  allTotals = [];
+}
+
+const totalsByCode = new Map(allTotals.map((t) => [t.stateCode, t]));
+
+const tableData = STATES.map((state) => {
+  const totals = totalsByCode.get(state.code);
+  const satisfied = totals?.satisfied ?? 0;
+  const dissatisfied = totals?.dissatisfied ?? 0;
+  const total = satisfied + dissatisfied;
+  const percentages = pct(satisfied, dissatisfied);
+
+  return {
+    code: state.code,
+    name: state.name,
+    slug: state.slug,
+    total,
+    satisfiedPct: percentages ? `${percentages.satisfied}%` : '—',
+    dissatisfiedPct: percentages ? `${percentages.dissatisfied}%` : '—',
+  };
+});
+
+const nationalTotal = tableData.reduce((sum, item) => sum + item.total, 0);
+
+const mapData = STATES.map((state) => {
+  const totals = totalsByCode.get(state.code);
+  const satisfied = totals?.satisfied ?? 0;
+  const dissatisfied = totals?.dissatisfied ?? 0;
+  const percentages = pct(satisfied, dissatisfied);
+
+  return {
+    slug: state.slug,
+    name: state.name,
+    satisfied,
+    dissatisfied,
+    share: percentages ? percentages.satisfied : null,
+  };
+});
+
+const minResponses = Number(import.meta.env.MIN_RESPONSES ?? MIN_RESPONSES);
+
+const lastUpdated = new Date().toLocaleString('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+---
+
+<Base
+  title="Rate My Gov — Citizen Feedback on Governance in India"
+  description="Voluntary civic feedback on governance across 28 Indian states and 8 Union Territories."
+>
+  <div class="container">
+    <h1>How satisfied are you with governance in your state?</h1>
+
+    <!-- 1. State picker (works without JavaScript) -->
+    <form method="get" action="/go" class="state-picker-form">
+      <label for="state-select" class="form-label">
+        Select your state or Union Territory:
+      </label>
+      <div class="form-row">
+        <select id="state-select" name="state" required>
+          <option value="" disabled selected>Choose a state or UT...</option>
+          {
+            STATES.map((state) => (
+              <option value={state.slug}>{state.name}</option>
+            ))
+          }
+        </select>
+        <button type="submit">Vote or view results</button>
+      </div>
+      <p id="geo-notice" class="geo-notice" hidden></p>
+    </form>
+
+    <script src="../scripts/home.ts"></script>
+
+    <!-- 2. Compact total-responses line -->
+    <p class="total-responses">
+      <strong>{nationalTotal.toLocaleString('en-IN')}</strong> total responses recorded nationwide.
+    </p>
+
+    <!-- 3. Map of India (zero-JS, server-rendered SVG) -->
+    <h2 class="map-heading" id="map-heading">Satisfaction by state and Union Territory</h2>
+    <IndiaMap data={mapData} minResponses={minResponses} />
+
+    <!-- 4. Accessible table of all states -->
+    <div class="table-container">
+      <table class="states-table">
+        <caption>Governance feedback by state and Union Territory</caption>
+        <thead>
+          <tr>
+            <th scope="col">State / Union Territory</th>
+            <th scope="col">Total responses</th>
+            <th scope="col">% Satisfied</th>
+            <th scope="col">% Dissatisfied</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            tableData.map((row) => (
+              <tr>
+                <th scope="row">
+                  <a href={`/state/${row.slug}`}>{row.name}</a>
+                </th>
+                <td>{row.total.toLocaleString('en-IN')}</td>
+                <td>{row.satisfiedPct}</td>
+                <td>{row.dissatisfiedPct}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 4. Timestamp -->
+    <p class="last-updated">
+      Last updated: {lastUpdated} IST
+    </p>
+  </div>
+</Base>

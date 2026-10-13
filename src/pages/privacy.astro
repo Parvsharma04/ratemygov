@@ -1,0 +1,91 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = true;
+
+const title = 'Privacy — Rate My Gov';
+const description =
+  'What Rate My Gov stores and does not store, how hashed identifiers are treated, cookies, Cloudflare Turnstile, retention, and how to contact us.';
+---
+
+<Base title={title} description={description} canonical="https://ratemygov.in/privacy">
+  <div class="container">
+    <h1>Privacy</h1>
+
+    <h2>What we store</h2>
+    <p>For each vote, we store only:</p>
+    <ul>
+      <li>the selected state or Union Territory;</li>
+      <li>the choice — satisfied or dissatisfied;</li>
+      <li>a timestamp of when the vote was recorded;</li>
+      <li>a keyed hash of a random device identifier;</li>
+      <li>a keyed hash of the IP address (IPv6 addresses are reduced to their
+        /64 network before hashing);</li>
+      <li>an approximate state inferred from the connection, used only for
+        geolocation flagging.</li>
+    </ul>
+
+    <h2>What we do not store</h2>
+    <ul>
+      <li>your name, phone number, or email address;</li>
+      <li>your raw IP address;</li>
+      <li>your GPS location or any precise location;</li>
+      <li>any account, profile, comment, or other user-generated content.</li>
+    </ul>
+    <p>No account is required to vote, and voting does not create a profile.</p>
+
+    <h2>Hashed identifiers are still personal data</h2>
+    <p>
+      The hashed device identifier and the keyed hash of the IP address are
+      stored to prevent duplicate votes. Hashing makes them difficult to reverse,
+      but it is <strong>not</strong> anonymization: these hashes are still treated
+      as personal data, protected accordingly, and never exposed publicly. Never
+      treat a hash as proof of anonymity.
+    </p>
+
+    <h2>Cookies</h2>
+    <p>
+      We set a single device cookie used only for duplicate-vote prevention. It
+      is <code>HttpOnly</code>, sent over <code>Secure</code> connections in
+      production, and restricted with an appropriate <code>SameSite</code>
+      policy. We do not use advertising, analytics, or tracking cookies.
+    </p>
+
+    <h2>Cloudflare Turnstile</h2>
+    <p>
+      To limit automated abuse, the vote form may use Cloudflare Turnstile.
+      Turnstile loads only when the form is first interacted with. Cloudflare may
+      process limited information from your browser (such as IP address and
+      browser characteristics) to determine whether the interaction is from a
+      human. That processing is governed by Cloudflare's
+      <a href="https://www.cloudflare.com/privacypolicy/">privacy policy</a>.
+      We do not receive or store the raw browsing data Turnstile collects.
+    </p>
+
+    <h2>Retention</h2>
+    <p>
+      Vote records are retained for as long as the service operates. There is
+      currently no automatic deletion schedule for vote records, and we state
+      this plainly rather than promising a fixed retention period. Raw IP
+      addresses and raw device identifiers are never stored. If you believe a
+      record relates to you and you want it deleted, contact us below and we
+      will consider your request.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      For privacy questions or requests, email:
+      <a href="mailto:privacy@ratemygov.in">privacy@ratemygov.in</a>.
+      <em>(Placeholder address — this mailbox is not yet active.)</em>
+    </p>
+
+    <h2>Legal note — DPDP Act, 2023</h2>
+    <p>
+      This notice references the Digital Personal Data Protection Act, 2023 of
+      India. <strong>It has not yet been reviewed by legal counsel and is not a
+      claim of compliance</strong> with the Act. We are reviewing our practices
+      against the Act's requirements and will update this page as that review
+      progresses.
+    </p>
+  </div>
+</Base>

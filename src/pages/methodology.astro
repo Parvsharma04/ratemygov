@@ -1,0 +1,95 @@
+---
+import Base from '../layouts/Base.astro';
+
+export const prerender = true;
+
+const title = 'Methodology — Rate My Gov';
+const description =
+  'How Rate My Gov results are produced: voluntary anonymous responses, duplicate prevention, approximate geolocation, caching, and how to read the map and trends.';
+---
+
+<Base title={title} description={description} canonical="https://ratemygov.in/methodology">
+  <div class="container">
+    <h1>Methodology</h1>
+
+    <h2>What the results are</h2>
+    <p>
+      Rate My Gov collects voluntary, anonymous responses to a single question:
+      whether people are satisfied or dissatisfied with governance in their state
+      or Union Territory. The results reflect the people who chose to respond
+      online. They are <strong>not a scientific or representative survey</strong> of
+      the state's population.
+    </p>
+    <p>
+      Rate My Gov is civic feedback. It is not affiliated with any political
+      party, government, or candidate, and it does not endorse or oppose any of
+      them.
+    </p>
+
+    <h2>How votes are recorded</h2>
+    <p>
+      Each person may record at most one vote per state or Union Territory per
+      device and one per network (IP address). Duplicate prevention relies on a
+      signed device cookie, a keyed hash of the device and network identity, and
+      automated bot checks. Repeated attempts to vote more than once are not
+      counted and never change the results.
+    </p>
+
+    <h2>Location</h2>
+    <p>
+      A voter's approximate country and state are inferred from the network
+      connection (the IP address). Location is approximate and is used only to
+      flag which state a response came from. It is <strong>not</strong> used to verify
+      where a voter lives, and it is not proof of residency or citizenship.
+    </p>
+
+    <h2>How results update</h2>
+    <p>
+      Results pages are cached at the edge of the network and refresh about every
+      30 seconds, so they load quickly and do not query a database on every
+      visit. Votes are submitted through a separate request that is never cached.
+    </p>
+
+    <h2>Reading the map</h2>
+    <ul>
+      <li>
+        <strong>Blue</strong> — a satisfied majority (more than half of the
+        responses were satisfied).
+      </li>
+      <li>
+        <strong>Red</strong> — a dissatisfied majority (more than half of the
+        responses were dissatisfied).
+      </li>
+      <li>
+        <strong>Neutral</strong> — an even split, treated in a neutral shade at
+        exactly 50% satisfied and 50% dissatisfied.
+      </li>
+      <li>
+        <strong>Grey hatching</strong> — too few responses for a reliable
+        reading (below the minimum threshold). A hatched state is
+        <em>not</em> shown as 0% satisfied; it is simply not reported.
+      </li>
+    </ul>
+    <p>
+      Colour is never the only way to read the map. Every region is a link to its
+      own results table with exact percentages and response counts, and a full
+      text table accompanies the map.
+    </p>
+
+    <h2>Reading the trends</h2>
+    <p>
+      Trend views compare <strong>new votes recorded within a selected window</strong>
+      (the last 7 or 30 days) with all-time results. A region with too few new
+      votes in the window is shown as grey rather than reported as a percentage.
+      Trends describe what respondents said over time; they do not imply a
+      cause-and-effect relationship with any event or policy.
+    </p>
+
+    <h2>What these results mean</h2>
+    <p>
+      These results reflect voluntary online responses and are not representative
+      of the state's population. They are civic feedback, not an election
+      forecast and not an endorsement.
+    </p>
+  </div>
+</Base>

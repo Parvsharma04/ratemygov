@@ -1,0 +1,119 @@
+---
+import { MAP_VIEWBOX, STATE_PATHS } from '../lib/map-paths';
+import { getMapColor, COLOR_SCALE, MIN_RESPONSES } from '../lib/colour';
+
+export interface StateMapData {
+  slug: string;
+  name: string;
+  satisfied: number;
+  dissatisfied: number;
+  share: number | null;
+}
+
+export interface Props {
+  data: StateMapData[];
+  mode?: 'now' | 'trend';
+  minResponses?: number;
+}
+
+const { data, mode = 'now', minResponses = MIN_RESPONSES } = Astro.props;
+
+const inTrend = mode === 'trend';
+
+const dataBySlug = new Map(data.map((item) => [item.slug, item]));
+---
+
+<figure class="map-figure">
+  <div class="map-container">
+    <svg
+      role="group"
+      aria-label="Map of India showing governance satisfaction by state and Union Territory"
+      viewBox={MAP_VIEWBOX}
+      class="india-map-svg"
+    >
+      <defs>
+        <pattern
+          id="hatch"
+          width="6"
+          height="6"
+          patternTransform="rotate(45 0 0)"
+          patternUnits="userSpaceOnUse"
+        >
+          <rect width="6" height="6" fill={COLOR_SCALE.HATCH_BG} />
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="6"
+            stroke={COLOR_SCALE.HATCH_STROKE}
+            stroke-width="1.5"
+          />
+        </pattern>
+      </defs>
+      <g id="soi-states-group">
+        {
+          Object.entries(STATE_PATHS).map(([slug, pathD]) => {
+            const item = dataBySlug.get(slug);
+            const total = item ? item.satisfied + item.dissatisfied : 0;
+            const share = item ? item.share : null;
+            const name = item ? item.name : slug;
+            const fill = getMapColor(share, total, minResponses);
+
+            let titleText: string;
+            if (total === 0) {
+              titleText = inTrend
+                ? `${name}: No new responses in this window`
+                : `${name}: No responses recorded`;
+            } else if (total < minResponses) {
+              titleText = inTrend
+                ? `${name}: Fewer than ${minResponses} new responses in this window (${total.toLocaleString('en-IN')})`
+                : `${name}: Fewer than ${minResponses} responses (${total.toLocaleString('en-IN')})`;
+            } else if (share !== null) {
+              titleText = inTrend
+                ? `${name}: ${share}% satisfied among new responses, ${total.toLocaleString('en-IN')} new responses`
+                : `${name}: ${share}% satisfied, ${total.toLocaleString('en-IN')} responses`;
+            } else {
+              titleText = inTrend
+                ? `${name}: Too few new responses in this window`
+                : `${name}: No responses recorded`;
+            }
+
+            return (
+              <a
+                href={`/state/${slug}`}
+                class="map-state-link"
+                aria-label={titleText}
+              >
+                <path
+                  d={pathD}
+                  style={`fill:${fill}`}
+                  class="map-state-path"
+                />
+                <title>{titleText}</title>
+              </a>
+            );
+          })
+        }
+      </g>
+    </svg>
+  </div>
+
+  <div class="map-legend" aria-label="Map legend">
+    <div class="legend-scale">
+      <div class="legend-gradient" aria-hidden="true"></div>
+      <div class="legend-labels">
+        <span>100% dissatisfied</span>
+        <span>50 / 50</span>
+        <span>100% satisfied</span>
+      </div>
+    </div>
+    <div class="legend-hatch-item">
+      <span class="hatch-swatch" aria-hidden="true"></span>
+      <span>Not enough responses yet</span>
+    </div>
+  </div>
+
+  <figcaption class="map-caption">
+    Boundaries as per Survey of India. Based on voluntary responses; not a representative survey.
+  </figcaption>
+</figure>

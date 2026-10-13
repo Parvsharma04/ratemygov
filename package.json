@@ -1,0 +1,28 @@
+{
+  "name": "ratemygov",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "typecheck": "astro check",
+    "test": "vitest run",
+    "db:migrate": "node scripts/migrate.ts",
+    "db:seed-demo": "node scripts/seed-demo.ts",
+    "map:build": "node scripts/build-map.ts",
+    "audit:size": "node scripts/audit-size.ts"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.6.13",
+    "astro": "^5.18.2",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7",
+    "wrangler": "^3.114.0"
+  }
+}

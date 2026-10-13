@@ -1,0 +1,233 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getStateBySlug } from '../../lib/states';
+import { getStateTotals } from '../../lib/votes';
+import { CACHE_HEADERS, pct } from '../../lib/cache';
+import { getStateSeries, getSnapshotCount } from '../../lib/trends';
+
+export const prerender = false;
+
+const { slug } = Astro.params;
+const state = getStateBySlug(slug || '');
+
+if (!state) {
+  return new Response('State Not Found', {
+    status: 404,
+    headers: { 'Cache-Control': 'no-store' },
+  });
+}
+
+const votedParam = Astro.url.searchParams.get('voted');
+const isVoted = votedParam === '1' || votedParam === 'dup';
+
+if (isVoted) {
+  Astro.response.headers.set('Cache-Control', 'no-store');
+} else {
+  Astro.response.headers.set('Cache-Control', CACHE_HEADERS['Cache-Control']);
+}
+
+let satisfied = 0;
+let dissatisfied = 0;
+let total = 0;
+
+try {
+  const totals = await getStateTotals(state.code);
+  satisfied = totals.satisfied;
+  dissatisfied = totals.dissatisfied;
+  total = totals.total;
+} catch {
+  satisfied = 0;
+  dissatisfied = 0;
+  total = 0;
+}
+
+const percentages = pct(satisfied, dissatisfied);
+const satPct = percentages ? percentages.satisfied : 0;
+const disPct = percentages ? percentages.dissatisfied : 0;
+
+const lastUpdated = new Date().toLocaleString('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+const canonicalUrl = `${Astro.url.origin}/state/${state.slug}`;
+
+let trendData: Array<{ day: string; satPct: number }> = [];
+let showTrend = false;
+
+try {
+  const snapCount = await getSnapshotCount(state.code);
+  if (snapCount >= 7) {
+    trendData = await getStateSeries(state.code, 30);
+    showTrend = trendData.length >= 2;
+  }
+} catch {
+  showTrend = false;
+}
+---
+
+<Base
+  title={`Governance in ${state.name} — Rate My Gov`}
+  description={`Voluntary civic feedback and governance satisfaction ratings for ${state.name}.`}
+  canonical={canonicalUrl}
+  ogTitle={`Governance in ${state.name} — Rate My Gov`}
+  ogDescription={`Voluntary civic feedback and governance satisfaction ratings for ${state.name}.`}
+>
+  <div class="container">
+    {
+      votedParam === '1' && (
+        <div class="banner banner-success" role="status">
+          Thank you! Your response has been recorded.
+        </div>
+      )
+    }
+    {
+      votedParam === 'dup' && (
+        <div class="banner banner-duplicate" role="status">
+          A response from this device or network has already been recorded for {state.name}.
+        </div>
+      )
+    }
+
+    <h1>{state.name}</h1>
+    <p class="state-meta-line">
+      How satisfied are you with governance in {state.name}?
+    </p>
+
+    <!-- 1. Vote Form -->
+    <form method="post" action="/api/vote" class="vote-form">
+      <input type="hidden" name="state" value={state.slug} />
+
+      {/* Honeypot field for bot deterrence - hidden from human users */}
+      <div style="display:none;" aria-hidden="true">
+        <label for="form-website-field">Leave this field blank</label>
+        <input
+          type="text"
+          id="form-website-field"
+          name="website"
+          tabindex="-1"
+          autocomplete="off"
+        />
+      </div>
+
+      <fieldset class="vote-fieldset">
+        <legend class="vote-legend">
+          Your feedback on governance in {state.name}:
+        </legend>
+        <div class="vote-options">
+          <label class="vote-option-label" for="choice-satisfied">
+            <input
+              type="radio"
+              id="choice-satisfied"
+              name="choice"
+              value="satisfied"
+              required
+            />
+            Satisfied
+          </label>
+          <label class="vote-option-label" for="choice-dissatisfied">
+            <input
+              type="radio"
+              id="choice-dissatisfied"
+              name="choice"
+              value="dissatisfied"
+              required
+            />
+            Dissatisfied
+          </label>
+        </div>
+      </fieldset>
+
+      <div
+        id="turnstile-container"
+        data-sitekey={import.meta.env.PUBLIC_TURNSTILE_SITEKEY || ''}
+      >
+      </div>
+
+      <button type="submit" class="btn-submit">
+        Submit response
+      </button>
+    </form>
+
+    <!-- 2. Results Section -->
+    <section class="results-card" aria-labelledby="results-heading">
+      <h2 id="results-heading" class="results-header">
+        Current Results
+      </h2>
+
+      <p class="total-responses">
+        Total responses: <strong>{total.toLocaleString('en-IN')}</strong>
+      </p>
+
+      {
+        total > 0 && percentages ? (
+          <div>
+            <div class="results-metrics">
+              <span class="metric-sat">Satisfied: {satPct}%</span>
+              <span class="metric-dis">Dissatisfied: {disPct}%</span>
+            </div>
+            <div
+              class="bar-container"
+              role="img"
+              aria-label={`Satisfaction bar: ${satPct}% Satisfied, ${disPct}% Dissatisfied`}
+            >
+              <div class="bar-segment-sat" style={`width: ${satPct}%;`} />
+              <div class="bar-segment-dis" style={`width: ${disPct}%;`} />
+            </div>
+          </div>
+        ) : (
+          <p class="results-metrics">
+            No responses recorded yet for {state.name}. Be the first to submit feedback!
+          </p>
+        )
+      }
+
+      <p class="last-updated">
+        Last updated: {lastUpdated} IST
+      </p>
+
+      <p class="methodology-note">
+        These results reflect voluntary online responses and are not representative of the state&apos;s population.
+      </p>
+
+      {showTrend && trendData.length >= 2 && (
+        <div class="trend-section" aria-label={`Daily satisfaction trend for ${state.name} over the last ${trendData.length} days`}>
+          <h3 class="trend-heading">Recent Trend</h3>
+          <div class="trend-chart" role="img" aria-label={`Satisfaction trend chart: ${trendData.map(p => p.satPct + '%').join(', ')}`}>
+            <svg
+              viewBox={`0 0 ${trendData.length * 10} 100`}
+              preserveAspectRatio="none"
+              class="trend-svg"
+              aria-hidden="true"
+            >
+              <line x1="0" y1="50" x2={trendData.length * 10} y2="50" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="2,2" />
+              <polyline
+                fill="none"
+                stroke="var(--sat)"
+                stroke-width="2"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+                points={trendData.map((p, i) => `${i * 10 + 5},${100 - p.satPct}`).join(' ')}
+              />
+            </svg>
+          </div>
+          <div class="trend-labels">
+            <span class="trend-label-start">{trendData[0].day.slice(5)}</span>
+            <span class="trend-label-end">{trendData[trendData.length - 1].day.slice(5)}</span>
+          </div>
+          <p class="trend-note">Daily % satisfied (days with &lt;10 new votes omitted)</p>
+        </div>
+      )}
+    </section>
+
+    <!-- 3. Share Section -->
+    <div class="share-section">
+      <a href={canonicalUrl} class="share-link" id="share-link">
+        Share this page
+      </a>
+    </div>
+
+    <script src="../../scripts/state.ts"></script>
+  </div>
+</Base>

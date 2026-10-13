@@ -1,0 +1,204 @@
+---
+import Base from '../layouts/Base.astro';
+import IndiaMap from '../components/IndiaMap.astro';
+import { STATES } from '../lib/states';
+import { getAllTotals } from '../lib/votes';
+import {
+  normalizeTrendWindow,
+  getWindowSentiment,
+  getSnapshotDayCount,
+  buildTrendRows,
+  MIN_WINDOW_RESPONSES,
+  MIN_SNAPSHOT_DAYS,
+  type WindowSentiment,
+} from '../lib/trends';
+import { CACHE_HEADERS } from '../lib/cache';
+
+export const prerender = false;
+
+const rawWindow = Astro.url.searchParams.get('window');
+const { days, redirect } = normalizeTrendWindow(rawWindow);
+
+if (redirect) {
+  // Invalid ?window= values: redirect to the canonical 7-day URL. The
+  // response is not cached (invalid-input redirects are not deterministic
+  // product responses), so it always carries an explicit no-store header.
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: '/trends?window=7',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+Astro.response.headers.set('Cache-Control', CACHE_HEADERS['Cache-Control']);
+
+type Totals = Array<{
+  stateCode: number;
+  satisfied: number;
+  dissatisfied: number;
+  total: number;
+}>;
+
+let allTotals: Totals = [];
+let sentiment: Map<number, WindowSentiment | null> = new Map();
+let snapshotDays = 0;
+
+try {
+  const [totals, windowMap, daysCount] = await Promise.all([
+    getAllTotals(),
+    getWindowSentiment(days),
+    getSnapshotDayCount(),
+  ]);
+  allTotals = totals;
+  sentiment = windowMap;
+  snapshotDays = daysCount;
+} catch {
+  allTotals = [];
+  sentiment = new Map();
+  snapshotDays = 0;
+}
+
+const hasEnoughHistory = snapshotDays >= MIN_SNAPSHOT_DAYS;
+
+const rows = buildTrendRows(STATES, allTotals, sentiment);
+
+const mapData = STATES.map((state) => {
+  const windowData = sentiment.get(state.code) ?? null;
+  return {
+    slug: state.slug,
+    name: state.name,
+    satisfied: windowData?.newSat ?? 0,
+    dissatisfied: windowData?.newDis ?? 0,
+    share: windowData?.share ?? null,
+  };
+});
+
+const windowTotal = rows.reduce((sum, row) => sum + row.windowTotal, 0);
+const allTimeTotal = allTotals.reduce((sum, t) => sum + t.total, 0);
+
+const lastUpdated = new Date().toLocaleString('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+---
+
+<Base
+  title="Governance trends — Rate My Gov"
+  description="Recent 7 and 30 day trends in governance satisfaction across Indian states and Union Territories, compared with all-time results."
+  canonical={Astro.url.origin + Astro.url.pathname}
+>
+  <div class="container">
+    <h1>Governance trends</h1>
+    <p class="state-meta-line">
+      Comparing the share of satisfied new responses in the last {days} days
+      with all-time results.
+    </p>
+
+    <!-- Window switcher: plain links, current window marked -->
+    <nav class="window-links" aria-label="Trend window">
+      <a
+        href="/trends?window=7"
+        class="window-link"
+        aria-current={days === 7 ? 'page' : undefined}
+      >7 days</a>
+      <a
+        href="/trends?window=30"
+        class="window-link"
+        aria-current={days === 30 ? 'page' : undefined}
+      >30 days</a>
+    </nav>
+
+    {
+      !hasEnoughHistory ? (
+        <p class="trends-notice" role="status">
+          Trends appear after {MIN_SNAPSHOT_DAYS} days of data.
+        </p>
+      ) : (
+        <>
+          <h2 class="map-heading">Last {days} days</h2>
+          <IndiaMap data={mapData} mode="trend" minResponses={MIN_WINDOW_RESPONSES} />
+
+          <p class="total-responses">
+            <strong>{windowTotal.toLocaleString('en-IN')}</strong> responses
+            recorded across India in the last {days} days
+            {allTimeTotal > 0
+              ? ` (${allTimeTotal.toLocaleString('en-IN')} all-time)`
+              : ''}.
+          </p>
+
+          <div class="table-container">
+            <table class="states-table trend-table">
+              <caption>
+                Change in % satisfied for the last {days} days compared with all-time
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">State / Union Territory</th>
+                  <th scope="col">All-time % satisfied</th>
+                  <th scope="col">Last {days} days % satisfied</th>
+                  <th scope="col">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {
+                  rows.map((row) => (
+                    <tr>
+                      <th scope="row">
+                        <a href={`/state/${row.slug}`}>{row.name}</a>
+                      </th>
+                      <td>
+                        {row.allTimePct === null ? '—' : `${row.allTimePct}%`}
+                      </td>
+                      <td>
+                        {row.windowPct === null ? '—' : `${row.windowPct}%`}
+                      </td>
+                      <td>
+                        {
+                          row.change === null ? (
+                            '—'
+                          ) : row.change > 0 ? (
+                            <span
+                              class="change-up"
+                              aria-label={`increased by ${row.change} percentage points`}
+                            >↑ +{row.change}</span>
+                          ) : row.change < 0 ? (
+                            <span
+                              class="change-down"
+                              aria-label={`decreased by ${Math.abs(row.change)} percentage points`}
+                            >↓ −{Math.abs(row.change)}</span>
+                          ) : (
+                            <span class="change-zero" aria-label="unchanged">0</span>
+                          )
+                        }
+                      </td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <p class="trend-note">
+            Change is the window % satisfied minus the all-time % satisfied, in
+            percentage points. States with too few new responses in the window
+            show —.
+          </p>
+
+          <p class="last-updated">
+            Last updated: {lastUpdated} IST
+          </p>
+
+          <p class="methodology-note">
+            These results reflect voluntary online responses and are not
+            representative of the state&apos;s population. Snapshots are taken
+            once per day; the window measures responses received since the
+            snapshot {days} days ago.
+          </p>
+        </>
+      )
+    }
+  </div>
+</Base>
